@@ -1,9 +1,9 @@
 // export classes & functions
 import deriveSFromPassword from './deriveSFromPassword.mjs'
-import JPake from './JPake.mjs'
+import JPake, { JPakeState } from './JPake.mjs'
 import JPakeThreePass from './JPakeThreePass.mjs'
 
-export { JPake, JPakeThreePass, deriveSFromPassword }
+export { JPake, JPakeThreePass, JPakeState, deriveSFromPassword }
 
 // export types
 import type { Round1Result, Round2Result } from './JPake.mjs'

@@ -24,4 +24,7 @@ lint: $(INSTALL_DEPS)
 	npx --no-install tsc --noEmit
 	npx --no-install eslint
 
+docs: $(INSTALL_DEPS) $(SRC_FILES) README.md
+	npx --no-install typedoc src/main.mts
+
 .PHONY: clean lint test

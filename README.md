@@ -2,6 +2,8 @@
 
 A TypeScript implementation of the Password Authenticated Key Exchange by Juggling (J-PAKE) protocol based on [RFC 8236](https://www.rfc-editor.org/rfc/rfc8236.txt).
 
+Documentation: [https://boelensman1.github.io/jpake/](https://boelensman1.github.io/jpake/)
+
 ## Features
 
 - Full implementation of the J-PAKE protocol
@@ -48,7 +50,10 @@ const aliceSharedKey = alice.deriveSharedKey()
 const bobSharedKey = bob.deriveSharedKey()
 
 // Keys should be equal
-console.log(Buffer.from(aliceSharedKey).toString() === Buffer.from(bobSharedKey).toString()) // true
+console.log(
+  Buffer.from(aliceSharedKey).toString() ===
+    Buffer.from(bobSharedKey).toString(),
+) // true
 ```
 
 ### Three-Pass Implementation
@@ -79,7 +84,10 @@ const aliceSharedKey = alice.deriveSharedKey()
 const bobSharedKey = bob.deriveSharedKey()
 
 // Keys should be equal
-console.log(Buffer.from(aliceSharedKey).toString() === Buffer.from(bobSharedKey).toString()) // true
+console.log(
+  Buffer.from(aliceSharedKey).toString() ===
+    Buffer.from(bobSharedKey).toString(),
+) // true
 ```
 
 ## Security Considerations
@@ -104,6 +112,9 @@ make build
 
 # Lint
 make lint
+
+# Compile docs
+make docs
 ```
 
 ## License
