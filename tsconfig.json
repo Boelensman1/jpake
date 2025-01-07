@@ -1,0 +1,18 @@
+{
+  "extends": "@tsconfig/node20/tsconfig.json",
+  "include": ["src/**/*", "tests/**/*", "eslint.config.mjs"],
+  "compilerOptions": {
+    "allowJs": true,
+    "types": ["node"],
+    "lib": ["dom"],
+    "module": "nodenext",
+    "experimentalDecorators": true,
+    "emitDecoratorMetadata": true,
+    "resolveJsonModule": true,
+    "strictBindCallApply": true,
+    "outDir": "lib",
+    "useDefineForClassFields": false,
+    "esModuleInterop": true,
+    "noEmit": true
+  }
+}

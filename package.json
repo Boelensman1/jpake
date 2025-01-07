@@ -1,0 +1,33 @@
+{
+  "name": "jpake-ts",
+  "version": "1.0.0",
+  "description": "",
+  "type": "module",
+  "exports": {
+    ".": {
+      "import": "./build/main.mjs",
+      "types": "./build/main.d.mts"
+    }
+  },
+  "types": "./build/main.d.mts",
+  "files": [
+    "build/**"
+  ],
+  "author": "",
+  "license": "MIT",
+  "devDependencies": {
+    "@tsconfig/node20": "^20.1.4",
+    "@types/node": "^20.17.12",
+    "@vitest/coverage-v8": "^2.1.2",
+    "eslint": "^9.10.0",
+    "eslint-plugin-jsdoc": "^50.6.1",
+    "prettier": "^3.4.2",
+    "type-fest": "^4.26.1",
+    "typescript": "^5.7.2",
+    "typescript-eslint": "^8.19.1",
+    "vitest": "^2.1.0"
+  },
+  "dependencies": {
+    "@noble/curves": "^1.6.0"
+  }
+}
