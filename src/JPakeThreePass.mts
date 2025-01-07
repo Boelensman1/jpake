@@ -83,7 +83,7 @@ class JPakeThreePass {
    * the initiator and the responder.
    * @returns The derived shared key.
    */
-  public deriveSharedKey() {
+  public deriveSharedKey(): Uint8Array {
     return this.jpake.deriveSharedKey()
   }
 }
