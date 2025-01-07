@@ -3,7 +3,7 @@ SRC_FILES=$(shell find src/)
 TEST_FILES:=$(shell find tests/)
 
 node_modules: package.json ./package-lock.json
-	npm ci
+	npm ci || ( sleep 1; touch package-lock.json; exit 1 ) # add the touch so if npm ci fails it will get rerun
 	@if [ -e node_modules ]; then touch node_modules; fi
 
 clean:
