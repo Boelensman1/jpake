@@ -27,4 +27,7 @@ lint: $(INSTALL_DEPS)
 docs: $(INSTALL_DEPS) $(SRC_FILES) README.md
 	npx --no-install typedoc src/main.mts
 
+publish: build
+	npm publish
+
 .PHONY: clean lint test
