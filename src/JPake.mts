@@ -1,9 +1,9 @@
-import { ProjPointType } from '@noble/curves/abstract/weierstrass'
-import { secp256k1 } from '@noble/curves/secp256k1'
-import { sha3_256 } from '@noble/hashes/sha3'
-import { bytesToNumberBE, numberToBytesBE } from '@noble/curves/abstract/utils'
+import type { WeierstrassPoint } from '@noble/curves/abstract/weierstrass.js'
+import { secp256k1 } from '@noble/curves/secp256k1.js'
+import { sha3_256 } from '@noble/hashes/sha3.js'
+import { bytesToNumberBE, numberToBytesBE } from '@noble/curves/utils.js'
 import { generateSchnorrProof, verifySchnorrProof } from './schnorr.mjs'
-import { mod } from '@noble/curves/abstract/modular'
+import { mod } from '@noble/curves/abstract/modular.js'
 
 import {
   InvalidArgumentError,
@@ -45,11 +45,11 @@ class JPake {
 
   private x1?: Uint8Array
   private x2?: Uint8Array
-  private G1?: ProjPointType<bigint>
-  private G2?: ProjPointType<bigint>
-  private G3?: ProjPointType<bigint>
-  private G4?: ProjPointType<bigint>
-  private B?: ProjPointType<bigint>
+  private G1?: WeierstrassPoint<bigint>
+  private G2?: WeierstrassPoint<bigint>
+  private G3?: WeierstrassPoint<bigint>
+  private G4?: WeierstrassPoint<bigint>
+  private B?: WeierstrassPoint<bigint>
   private x2s?: Uint8Array
   private ZKPx2sBob?: Uint8Array
   private bobUserId?: string
@@ -89,9 +89,9 @@ class JPake {
    */
   private verifyPeerProof(
     peerUserId: string,
-    gx: ProjPointType<bigint>,
+    gx: WeierstrassPoint<bigint>,
     proof: Uint8Array,
-    g: ProjPointType<bigint>,
+    g: WeierstrassPoint<bigint>,
   ): boolean {
     if (this.userId === peerUserId) {
       throw new VerificationError(
@@ -121,12 +121,12 @@ class JPake {
       )
     }
 
-    // secp256k1.utils.randomPrivateKey() ends with:
+    // secp256k1.utils.randomSecretKey() ends with:
     // mod(b2n(hash), N - 1n) + 1n;
     // therefore this guarantees that the output is in the range
     // of [1, n-1], making it valid for both
-    this.x1 = secp256k1.utils.randomPrivateKey()
-    this.x2 = secp256k1.utils.randomPrivateKey()
+    this.x1 = secp256k1.utils.randomSecretKey()
+    this.x2 = secp256k1.utils.randomSecretKey()
 
     // calculate G1 = G x [x1]
     this.G1 = G.multiply(bytesToNumberBE(this.x1))
@@ -154,7 +154,7 @@ class JPake {
     }
 
     this.state = JPakeState.ROUND1FINISHED
-    return { G1: this.G1.toRawBytes(), G2: this.G2.toRawBytes(), ZKPx1, ZKPx2 }
+    return { G1: this.G1.toBytes(), G2: this.G2.toBytes(), ZKPx1, ZKPx2 }
   }
 
   /**
@@ -197,11 +197,11 @@ class JPake {
 
     let round1ResultBobG1, round1ResultBobG2
     try {
-      round1ResultBobG1 = secp256k1.ProjectivePoint.fromHex(round1ResultBob.G1)
-      round1ResultBobG2 = secp256k1.ProjectivePoint.fromHex(round1ResultBob.G2)
+      round1ResultBobG1 = secp256k1.Point.fromBytes(round1ResultBob.G1)
+      round1ResultBobG2 = secp256k1.Point.fromBytes(round1ResultBob.G2)
     } catch {
       throw new InvalidArgumentError(
-        'Invalid points received: G1 or G2 is not a valid ProjectivePoint',
+        'Invalid points received: G1 or G2 is not a valid Point',
       )
     }
 
@@ -250,7 +250,7 @@ class JPake {
     )
 
     // from RFC: Alice shall check that these new generators are not points at infinity.
-    if (generator.equals(secp256k1.ProjectivePoint.ZERO)) {
+    if (generator.equals(secp256k1.Point.ZERO)) {
       throw new VerificationError(
         'Invalid point: The new generator is the point at infinity',
       )
@@ -261,7 +261,7 @@ class JPake {
     }
 
     this.state = JPakeState.ROUND2FINISHED
-    return { A: A.toRawBytes(true), ZKPx2s }
+    return { A: A.toBytes(true), ZKPx2s }
   }
 
   /**
@@ -282,7 +282,7 @@ class JPake {
       )
     }
 
-    this.B = secp256k1.ProjectivePoint.fromHex(round2ResultBob.A)
+    this.B = secp256k1.Point.fromBytes(round2ResultBob.A)
     this.ZKPx2sBob = round2ResultBob.ZKPx2s
     this.state = JPakeState.ROUND2RESULTSRECEIVED
   }
@@ -319,7 +319,7 @@ class JPake {
     }
 
     // Check that B is not a point at infinity
-    if (this.B.equals(secp256k1.ProjectivePoint.ZERO)) {
+    if (this.B.equals(secp256k1.Point.ZERO)) {
       throw new VerificationError('Invalid point: B is the point at infinity')
     }
 
@@ -341,7 +341,7 @@ class JPake {
     ).multiply(bytesToNumberBE(this.x2))
 
     // Convert Ka to bytes
-    const sharedSecret = Ka.toRawBytes(true)
+    const sharedSecret = Ka.toBytes(true)
 
     if (!sharedSecret) {
       throw new JPakeError('Failed to derive shared key')

@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
-import { secp256k1 } from '@noble/curves/secp256k1'
-import { bytesToNumberBE } from '@noble/curves/abstract/utils'
+import { secp256k1 } from '@noble/curves/secp256k1.js'
+import { bytesToNumberBE } from '@noble/curves/utils.js'
 import {
   generateSchnorrChallenge,
   generateSchnorrProof,
@@ -10,11 +10,11 @@ import { G } from '../src/constants.mjs'
 
 describe('Schnorr Signature Scheme', () => {
   const userId = 'testUser'
-  const privateKey = secp256k1.utils.randomPrivateKey()
+  const privateKey = secp256k1.utils.randomSecretKey()
   const publicKey = G.multiply(bytesToNumberBE(privateKey))
 
   it('should generate a valid Schnorr challenge', () => {
-    const gr = G.multiply(bytesToNumberBE(secp256k1.utils.randomPrivateKey()))
+    const gr = G.multiply(bytesToNumberBE(secp256k1.utils.randomSecretKey()))
     const challenge = generateSchnorrChallenge(userId, publicKey, gr)
 
     expect(challenge).toBeDefined()
@@ -48,7 +48,7 @@ describe('Schnorr Signature Scheme', () => {
 
   it('should handle otherInfo correctly', () => {
     const otherInfo = ['additional', 'information']
-    const gr = G.multiply(bytesToNumberBE(secp256k1.utils.randomPrivateKey()))
+    const gr = G.multiply(bytesToNumberBE(secp256k1.utils.randomSecretKey()))
     const challenge = generateSchnorrChallenge(userId, publicKey, gr, otherInfo)
 
     expect(challenge).toBeDefined()
@@ -67,7 +67,7 @@ describe('Schnorr Signature Scheme', () => {
 
   it('should throw an error for long userId', () => {
     const longUserId = 'a'.repeat(256)
-    const gr = G.multiply(bytesToNumberBE(secp256k1.utils.randomPrivateKey()))
+    const gr = G.multiply(bytesToNumberBE(secp256k1.utils.randomSecretKey()))
 
     expect(() =>
       generateSchnorrChallenge(longUserId, publicKey, gr),
@@ -78,7 +78,7 @@ describe('Schnorr Signature Scheme', () => {
 
   it('should throw an error for long otherInfo', () => {
     const longOtherInfo = ['a'.repeat(256)]
-    const gr = G.multiply(bytesToNumberBE(secp256k1.utils.randomPrivateKey()))
+    const gr = G.multiply(bytesToNumberBE(secp256k1.utils.randomSecretKey()))
 
     expect(() =>
       generateSchnorrChallenge(userId, publicKey, gr, longOtherInfo),

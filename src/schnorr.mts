@@ -1,9 +1,9 @@
-import { ProjPointType } from '@noble/curves/abstract/weierstrass'
-import { secp256k1 } from '@noble/curves/secp256k1'
-import { sha3_256 } from '@noble/hashes/sha3'
-import { concatBytes } from '@noble/hashes/utils'
-import { bytesToNumberBE, numberToBytesBE } from '@noble/curves/abstract/utils'
-import { mod } from '@noble/curves/abstract/modular'
+import type { WeierstrassPoint } from '@noble/curves/abstract/weierstrass.js'
+import { secp256k1 } from '@noble/curves/secp256k1.js'
+import { sha3_256 } from '@noble/hashes/sha3.js'
+import { concatBytes } from '@noble/hashes/utils.js'
+import { bytesToNumberBE, numberToBytesBE } from '@noble/curves/utils.js'
+import { mod } from '@noble/curves/abstract/modular.js'
 
 import {
   InvalidArgumentError,
@@ -25,13 +25,13 @@ import { n } from './constants.mjs'
  */
 export const generateSchnorrChallenge = (
   userId: string,
-  gx: ProjPointType<bigint>,
-  gr: ProjPointType<bigint>,
+  gx: WeierstrassPoint<bigint>,
+  gr: WeierstrassPoint<bigint>,
   otherInfo: string[] = [],
 ): bigint => {
   const userIdBytes = new TextEncoder().encode(userId)
-  const gxBytes = gx.toRawBytes(true)
-  const grBytes = gr.toRawBytes(true)
+  const gxBytes = gx.toBytes(true)
+  const grBytes = gr.toBytes(true)
 
   if (userIdBytes.length > 255) {
     throw new InvalidArgumentError(
@@ -56,10 +56,10 @@ export const generateSchnorrChallenge = (
       sha3_256(
         concatBytes(
           new Uint8Array([gxBytes.length]),
-          gx.toRawBytes(true),
+          gx.toBytes(true),
 
           new Uint8Array([grBytes.length]),
-          gr.toRawBytes(true),
+          gr.toBytes(true),
 
           new Uint8Array([userIdBytes.length]),
           userIdBytes,
@@ -95,11 +95,11 @@ export const generateSchnorrChallenge = (
 export const generateSchnorrProof = (
   userId: string,
   x: Uint8Array,
-  gx: ProjPointType<bigint>,
-  g: ProjPointType<bigint>,
+  gx: WeierstrassPoint<bigint>,
+  g: WeierstrassPoint<bigint>,
   otherInfo: string[] = [],
 ): Uint8Array => {
-  const v = bytesToNumberBE(secp256k1.utils.randomPrivateKey())
+  const v = bytesToNumberBE(secp256k1.utils.randomSecretKey())
 
   const V = g.multiply(v)
 
@@ -107,7 +107,7 @@ export const generateSchnorrProof = (
 
   const r = numberToBytesBE(mod(v - bytesToNumberBE(x) * challenge, n), 32)
 
-  const Vbytes = V.toRawBytes(true)
+  const Vbytes = V.toBytes(true)
   if (Vbytes.length !== 33 || r.length !== 32) {
     throw new JPakeError(
       'Generated proof is invalid, V and r must be 33 and 32 bytes respectively',
@@ -140,9 +140,9 @@ export const generateSchnorrProof = (
  */
 export const verifySchnorrProof = (
   peerUserId: string,
-  gx: ProjPointType<bigint>,
+  gx: WeierstrassPoint<bigint>,
   proof: Uint8Array,
-  g: ProjPointType<bigint>,
+  g: WeierstrassPoint<bigint>,
   otherInfo: string[] = [],
 ): boolean => {
   if (proof.length !== 33 + 32 + 2) {
@@ -160,7 +160,7 @@ export const verifySchnorrProof = (
   // Extract V and r from the proof
   let V
   try {
-    V = secp256k1.ProjectivePoint.fromHex(proof.slice(1, 1 + VLength))
+    V = secp256k1.Point.fromBytes(proof.slice(1, 1 + VLength))
   } catch {
     // Error: Point is not on curve, proof was tampered with
     return false

@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { deriveSFromPassword } from '../src/main.mjs'
 import { n } from '../src/constants.mjs'
-import { bytesToNumberBE } from '@noble/curves/abstract/utils'
+import { bytesToNumberBE } from '@noble/curves/utils.js'
 
 describe('deriveSFromPassword', () => {
   it('should derive a valid s value from a password', () => {

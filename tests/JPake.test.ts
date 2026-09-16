@@ -6,8 +6,8 @@ import {
   Round2Result,
 } from '../src/main.mjs'
 import { n } from '../src/constants.mjs'
-import { numberToBytesBE } from '@noble/curves/abstract/utils'
-import { secp256k1 } from '@noble/curves/secp256k1'
+import { numberToBytesBE } from '@noble/curves/utils.js'
+import { secp256k1 } from '@noble/curves/secp256k1.js'
 
 describe('JPake', () => {
   let alice: JPake
@@ -282,9 +282,7 @@ describe('JPake', () => {
         numberToBytesBE(BigInt(123), 32),
         'Bob',
       ),
-    ).toThrowError(
-      'Invalid points received: G1 or G2 is not a valid ProjectivePoint',
-    )
+    ).toThrowError('Invalid points received: G1 or G2 is not a valid Point')
   })
 
   it('should throw errors when functions are called in the wrong state', () => {
@@ -369,7 +367,7 @@ describe('JPake', () => {
     )
     alice['x2'] = alicex2
 
-    alice['B'] = secp256k1.ProjectivePoint.ZERO
+    alice['B'] = secp256k1.Point.ZERO
     expect(() => alice.deriveSharedKey()).toThrowError(
       'Invalid point: B is the point at infinity',
     )

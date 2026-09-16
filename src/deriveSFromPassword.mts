@@ -1,6 +1,6 @@
-import { sha3_256 } from '@noble/hashes/sha3'
-import { bytesToNumberBE, numberToBytesBE } from '@noble/curves/abstract/utils'
-import { mod } from '@noble/curves/abstract/modular'
+import { sha3_256 } from '@noble/hashes/sha3.js'
+import { bytesToNumberBE, numberToBytesBE } from '@noble/curves/utils.js'
+import { mod } from '@noble/curves/abstract/modular.js'
 import { n } from './constants.mjs'
 import { InvalidArgumentError } from './JPakeErrors.mjs'
 
