@@ -60,7 +60,7 @@ class JPakeThreePass {
     peerUserId: string,
   ): Pass3Result {
     const round2Result = this.jpake.round2(
-      pass2Result.round1Result,
+      pass2Result?.round1Result,
       s,
       peerUserId,
     )

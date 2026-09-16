@@ -4,6 +4,9 @@
   "description": "",
   "packageManager": "pnpm@12.4.0",
   "type": "module",
+  "engines": {
+    "node": ">=20.19.0"
+  },
   "exports": {
     ".": {
       "import": "./build/main.mjs",

@@ -1,12 +1,17 @@
 import { describe, it, expect } from 'vitest'
 import { secp256k1 } from '@noble/curves/secp256k1.js'
-import { bytesToNumberBE, hexToBytes } from '@noble/curves/utils.js'
+import {
+  bytesToNumberBE,
+  hexToBytes,
+  numberToBytesBE,
+} from '@noble/curves/utils.js'
 import {
   generateSchnorrChallenge,
   generateSchnorrProof,
   verifySchnorrProof,
 } from '../src/schnorr.mjs'
-import { G } from '../src/constants.mjs'
+import { G, n } from '../src/constants.mjs'
+import { VerificationError } from '../src/JPakeErrors.mjs'
 
 describe('Schnorr Signature Scheme', () => {
   const userId = 'testUser'
@@ -130,6 +135,39 @@ describe('Schnorr Signature Scheme', () => {
     const isValid = verifySchnorrProof('wrongUser', publicKey, proof, G)
     expect(isValid).toBe(false)
   })
+
+  it.each([n, n + 1n, (1n << 256n) - 1n])(
+    'should reject out-of-range response %s with a protocol error',
+    (r) => {
+      const proof = hexToBytes(vectors[0].proof)
+      proof.set(numberToBytesBE(r, 32), 35)
+      expect(() =>
+        verifySchnorrProof(userId, G.multiply(3n), proof, G, otherInfo),
+      ).toThrowError(VerificationError)
+    },
+  )
+
+  it('should reject an incorrect zero response without a RangeError', () => {
+    const proof = hexToBytes(vectors[0].proof)
+    proof.fill(0, 35)
+    expect(
+      verifySchnorrProof(userId, G.multiply(3n), proof, G, otherInfo),
+    ).toBe(false)
+  })
+
+  it.each([null, {}, 'not a proof', new Array<number>(67).fill(0)])(
+    'should reject non-byte proof %j with a protocol error',
+    (proof) => {
+      expect(() =>
+        verifySchnorrProof(
+          userId,
+          publicKey,
+          proof as unknown as Uint8Array,
+          G,
+        ),
+      ).toThrowError(VerificationError)
+    },
+  )
 
   it.each(['peer\uD800', 'peer\uDC00'])(
     'should reject proof identity alias %j',

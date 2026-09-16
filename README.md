@@ -14,6 +14,8 @@ Documentation: [https://boelensman1.github.io/jpake/](https://boelensman1.github
 
 ## Installation
 
+Requires Node.js 20.19.0 or newer.
+
 ```bash
 npm install jpake-ts
 ```
@@ -103,6 +105,24 @@ bytes. Context strings must also be well-formed Unicode and at most 255
 UTF-8 bytes each. Lone UTF-16 surrogates are rejected so distinct IDs cannot
 collapse to the same encoded identity. Valid strings are encoded exactly as
 provided, without Unicode normalization.
+
+Passwords passed to `deriveSFromPassword` must be nonempty, well-formed Unicode
+strings. Non-string values and lone UTF-16 surrogates are rejected. Passwords
+have no 255-byte protocol-field limit and are not Unicode-normalized; valid
+passwords retain their existing derived values.
+
+Errors while generating or processing a round move the session to the terminal
+`JPakeState.FAILED` state. Create a new instance to retry an exchange. Calls made
+out of order raise `InvalidStateError` without changing the current state.
+Incoming round-two proofs are copied, so subsequent caller mutations do not
+change the stored proof. These rules apply to both exchange variants.
+
+Ephemeral secret fields use JavaScript private storage. Their byte buffers are
+overwritten and released when no longer needed, after successful key derivation,
+or when an exchange fails. This reduces accidental exposure through object
+inspection and retention; JavaScript does not guarantee complete memory erasure.
+Schnorr nonce byte buffers are overwritten immediately after conversion to
+bigint. The bigint intermediates cannot be explicitly erased in JavaScript.
 
 1. This implementation is not resistant to timing attacks. In cryptographic contexts where timing attacks are a concern, additional mitigations should be implemented.
 2. If using `deriveSFromPassword` the password should be strong and have sufficient entropy.

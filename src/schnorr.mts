@@ -1,7 +1,7 @@
 import type { WeierstrassPoint } from '@noble/curves/abstract/weierstrass.js'
 import { secp256k1 } from '@noble/curves/secp256k1.js'
 import { sha3_256 } from '@noble/hashes/sha3.js'
-import { concatBytes } from '@noble/hashes/utils.js'
+import { concatBytes, isBytes } from '@noble/hashes/utils.js'
 import { bytesToNumberBE, numberToBytesBE } from '@noble/curves/utils.js'
 import { mod } from '@noble/curves/abstract/modular.js'
 
@@ -11,7 +11,7 @@ import {
   VerificationError,
 } from './JPakeErrors.mjs'
 import { n } from './constants.mjs'
-import encodeProtocolString from './encodeProtocolString.mjs'
+import { encodeProtocolField } from './encodeProtocolString.mjs'
 
 // Implementation of Schnorr ZKP using https://www.rfc-editor.org/rfc/rfc8235
 
@@ -32,7 +32,7 @@ export const generateSchnorrChallenge = (
   g: WeierstrassPoint<bigint>,
   otherInfo: string[] = [],
 ): bigint => {
-  const userIdBytes = encodeProtocolString(userId, 'userId')
+  const userIdBytes = encodeProtocolField(userId, 'userId')
   const gBytes = g.toBytes(true)
   const gxBytes = gx.toBytes(true)
   const grBytes = gr.toBytes(true)
@@ -72,7 +72,7 @@ export const generateSchnorrChallenge = (
           userIdBytes,
 
           ...otherInfo.map((info) => {
-            const infoBytes = encodeProtocolString(info, 'otherInfo')
+            const infoBytes = encodeProtocolField(info, 'otherInfo')
             return concatBytes(new Uint8Array([infoBytes.length]), infoBytes)
           }),
         ),
@@ -101,7 +101,9 @@ export const generateSchnorrProof = (
   g: WeierstrassPoint<bigint>,
   otherInfo: string[] = [],
 ): Uint8Array => {
-  const v = bytesToNumberBE(secp256k1.utils.randomSecretKey())
+  const vBytes = secp256k1.utils.randomSecretKey()
+  const v = bytesToNumberBE(vBytes)
+  vBytes.fill(0)
 
   const V = g.multiply(v)
 
@@ -132,6 +134,22 @@ export const generateSchnorrProof = (
 }
 
 /**
+ * Checks the byte type, total length, and component lengths of a Schnorr proof.
+ * @param proof - The proof to check.
+ * @throws {VerificationError} If the proof does not have the required wire shape.
+ */
+export function assertProofShape(proof: unknown): asserts proof is Uint8Array {
+  if (!isBytes(proof) || proof.length !== 33 + 32 + 2) {
+    throw new VerificationError('Invalid proof, must be 33 + 32 + 2 bytes long')
+  }
+  if (proof[0] !== 33 || proof[34] !== 32) {
+    throw new VerificationError(
+      'Invalid proof, V must be 33 bytes and r must be 32 bytes',
+    )
+  }
+}
+
+/**
  * Verifies a Schnorr proof.
  * @param peerUserId - The peer user ID.
  * @param gx - The public key point.
@@ -147,17 +165,10 @@ export const verifySchnorrProof = (
   g: WeierstrassPoint<bigint>,
   otherInfo: string[] = [],
 ): boolean => {
-  if (proof.length !== 33 + 32 + 2) {
-    throw new VerificationError('Invalid proof, must be 33 + 32 + 2 bytes long')
-  }
-  // get and verify lengths
+  assertProofShape(proof)
+  // Component lengths have been validated by assertProofShape.
   const VLength = proof[0]
   const rLength = proof[1 + VLength]
-  if (VLength !== 33 || rLength !== 32) {
-    throw new VerificationError(
-      'Invalid proof, V must be 33 bytes and r must be 32 bytes',
-    )
-  }
 
   // Extract V and r from the proof
   let V
@@ -170,13 +181,19 @@ export const verifySchnorrProof = (
   const r = bytesToNumberBE(
     proof.slice(1 + VLength + 1, 1 + VLength + 1 + rLength),
   )
+  if (r >= n) {
+    throw new VerificationError(
+      'Invalid proof, r must be less than the curve order',
+    )
+  }
 
   // Compute the challenge
   const c = generateSchnorrChallenge(peerUserId, gx, V, g, otherInfo)
 
   // Verify that V = G * [r] + gx * [c]
   const leftSide = V
-  const rightSide = g.multiply(r).add(gx.multiply(c))
+  // Both scalars are public and may be zero. Secret-scalar multiply rejects zero.
+  const rightSide = g.multiplyUnsafe(r).add(gx.multiplyUnsafe(c))
 
   // Convert both sides to affine coordinates for comparison
   // This is necessary because one side might be normalized (in affine form)

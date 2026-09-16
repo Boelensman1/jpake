@@ -97,7 +97,7 @@ describe('JPake', () => {
       expect(() => victim.round2(reflectedRound1, s, peerId)).toThrowError(
         'userId must contain only well-formed Unicode.',
       )
-      expect(victim.getState()).toBe(JPakeState.ROUND1FINISHED)
+      expect(victim.getState()).toBe(JPakeState.FAILED)
     },
   )
 
@@ -203,7 +203,7 @@ describe('JPake', () => {
       expect(() => alice.round2(bobRound1, s, bob.userId)).toThrowError(
         'ZKP verification failed',
       )
-      expect(alice.getState()).toBe(JPakeState.ROUND1FINISHED)
+      expect(alice.getState()).toBe(JPakeState.FAILED)
     },
   )
 
@@ -217,7 +217,7 @@ describe('JPake', () => {
       expect(() => alice.round2(bobRound1, s, bob.userId)).toThrowError(
         'Invalid proof, must be 33 + 32 + 2 bytes long',
       )
-      expect(alice.getState()).toBe(JPakeState.ROUND1FINISHED)
+      expect(alice.getState()).toBe(JPakeState.FAILED)
     },
   )
 
@@ -229,7 +229,7 @@ describe('JPake', () => {
     expect(() => alice.round2(bobRound1, s, bob.userId)).toThrowError(
       'ZKP verification failed',
     )
-    expect(alice.getState()).toBe(JPakeState.ROUND1FINISHED)
+    expect(alice.getState()).toBe(JPakeState.FAILED)
   })
 
   it('should detect MITM attack in round 2', () => {
@@ -344,21 +344,18 @@ describe('JPake', () => {
     expect(aliceSharedKey).toEqual(bobSharedKey)
   })
 
-  it('should throw error when s = 0 or s mod n = 0', () => {
-    alice.round1()
-    const bobRound1 = bob.round1()
+  it.each([0n, 2n * n])(
+    'should abort when s = %s is zero modulo n',
+    (scalar) => {
+      alice.round1()
+      const bobRound1 = bob.round1()
 
-    // Test when s = 0
-    expect(() =>
-      alice.round2(bobRound1, numberToBytesBE(0n, 32), bob.userId),
-    ).toThrowError('Invalid s: s MUST not be equal to 0 mod n')
-
-    // Test when s mod n = 0
-    const largeS = numberToBytesBE(n * 2n, 64) // s is a multiple of n
-    expect(() => alice.round2(bobRound1, largeS, bob.userId)).toThrowError(
-      'Invalid s: s MUST not be equal to 0 mod n',
-    )
-  })
+      expect(() =>
+        alice.round2(bobRound1, numberToBytesBE(scalar, 64), bob.userId),
+      ).toThrowError('Invalid s: s MUST not be equal to 0 mod n')
+      expect(alice.getState()).toBe(JPakeState.FAILED)
+    },
+  )
 
   it('should throw an error when receiving invalid points', () => {
     const alice = new JPake('Alice')
@@ -435,37 +432,15 @@ describe('JPake', () => {
     )
   })
 
-  it('should throw errors when data is missing or incorrect', () => {
-    /* eslint-disable @typescript-eslint/dot-notation */
-    const aliceRound1 = alice.round1()
+  it('should abort when round-two data is missing', () => {
+    alice.round1()
     const bobRound1 = bob.round1()
-
-    const aliceWithMissingData = new JPake('Alice-with-missing')
-    aliceWithMissingData.round1()
-    delete aliceWithMissingData['x2']
-    expect(() =>
-      aliceWithMissingData.round2(bobRound1, s, bob.userId),
-    ).toThrowError('Missing required data for round 2')
-
     alice.round2(bobRound1, s, bob.userId)
 
     expect(() => alice.setRound2ResultFromBob({} as Round2Result)).toThrowError(
       'Missing required arguments for setRound2ResultFromBob',
     )
 
-    const bobRound2 = bob.round2(aliceRound1, s, alice.userId)
-    alice.setRound2ResultFromBob(bobRound2)
-    const alicex2 = alice['x2']
-    delete alice['x2']
-    expect(() => alice.deriveSharedKey()).toThrowError(
-      'Missing required data for key derivation',
-    )
-    alice['x2'] = alicex2
-
-    alice['B'] = secp256k1.Point.ZERO
-    expect(() => alice.deriveSharedKey()).toThrowError(
-      'Invalid point: B is the point at infinity',
-    )
-    /* eslint-enable */
+    expect(alice.getState()).toBe(JPakeState.FAILED)
   })
 })

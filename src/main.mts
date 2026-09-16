@@ -4,6 +4,7 @@ import JPake, { JPakeState } from './JPake.mjs'
 import JPakeThreePass from './JPakeThreePass.mjs'
 
 export { JPake, JPakeThreePass, JPakeState, deriveSFromPassword }
+export { JPakeError, InvalidStateError } from './JPakeErrors.mjs'
 
 // export types
 import type { Round1Result, Round2Result } from './JPake.mjs'

@@ -4,7 +4,7 @@
   "compilerOptions": {
     "allowJs": true,
     "types": ["node"],
-    "lib": ["dom"],
+    "lib": ["es2023", "dom"],
     "module": "nodenext",
     "experimentalDecorators": true,
     "emitDecoratorMetadata": true,

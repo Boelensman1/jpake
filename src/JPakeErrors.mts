@@ -6,9 +6,10 @@ export class JPakeError extends Error {
   /**
    * Creates a new JPakeError.
    * @param message - The error message.
+   * @param options - Standard error options, including an underlying cause.
    */
-  constructor(message: string) {
-    super(message)
+  constructor(message: string, options?: ErrorOptions) {
+    super(message, options)
     this.name = 'JPakeError'
   }
 }

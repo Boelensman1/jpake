@@ -1,5 +1,7 @@
 import { describe, it, expect, beforeEach } from 'vitest'
 import { JPakeThreePass, deriveSFromPassword } from '../src/main.mjs'
+import type { Pass1Result, Pass2Result, Pass3Result } from '../src/main.mjs'
+import { InvalidStateError, JPakeError } from '../src/JPakeErrors.mjs'
 
 describe('JPakeThreePass', () => {
   let alice: JPakeThreePass
@@ -121,5 +123,64 @@ describe('JPakeThreePass', () => {
     expect(() => alice.deriveSharedKey()).toThrowError(
       'Shared key can only be derived after receiving Round 2 results',
     )
+  })
+
+  it.each(['initiator', 'responder'] as const)(
+    'should abort the %s after a malformed round-two proof',
+    (role) => {
+      const pass1 = alice.pass1()
+      const pass2 = bob.pass2(pass1, s, alice.userId)
+      let receiver: JPakeThreePass
+      let incoming: Pass3Result
+      let original: Uint8Array
+      if (role === 'initiator') {
+        receiver = alice
+        incoming = pass2.round2Result
+        original = incoming.ZKPx2s.slice()
+        incoming.ZKPx2s.fill(0xff, 35)
+        alice.pass3(pass2, s, bob.userId)
+      } else {
+        receiver = bob
+        incoming = alice.pass3(pass2, s, bob.userId)
+        original = incoming.ZKPx2s.slice()
+        incoming.ZKPx2s.fill(0xff, 35)
+        bob.receivePass3Results(incoming)
+      }
+      expect(() => receiver.deriveSharedKey()).toThrowError(JPakeError)
+      incoming.ZKPx2s.set(original)
+      expect(() => receiver.deriveSharedKey()).toThrowError(InvalidStateError)
+      expect(() => receiver.pass1()).toThrowError(InvalidStateError)
+      expect(() => receiver.pass2(pass1, s, 'Peer')).toThrowError(
+        InvalidStateError,
+      )
+      expect(() => receiver.pass3(pass2, s, 'Peer')).toThrowError(
+        InvalidStateError,
+      )
+      expect(() => receiver.receivePass3Results(incoming)).toThrowError(
+        InvalidStateError,
+      )
+    },
+  )
+
+  it('should isolate submitted proofs from later caller mutations on both peers', () => {
+    const pass1 = alice.pass1()
+    const pass2 = bob.pass2(pass1, s, alice.userId)
+    const pass3 = alice.pass3(pass2, s, bob.userId)
+    bob.receivePass3Results(pass3)
+    pass2.round2Result.ZKPx2s.fill(0xff)
+    pass3.ZKPx2s.fill(0xff)
+    expect(alice.deriveSharedKey()).toEqual(bob.deriveSharedKey())
+  })
+
+  it('should abort on missing pass containers with protocol errors', () => {
+    expect(() =>
+      bob.pass2(null as unknown as Pass1Result, s, alice.userId),
+    ).toThrowError(JPakeError)
+    expect(() => bob.pass1()).toThrowError(InvalidStateError)
+    alice.pass1()
+    expect(() =>
+      alice.pass3(null as unknown as Pass2Result, s, bob.userId),
+    ).toThrowError(JPakeError)
+    expect(() => alice.pass1()).toThrowError(InvalidStateError)
   })
 })
