@@ -1,0 +1,6 @@
+minimumReleaseAge: 10080 # 7 days
+
+# esbuild (via vitest) only uses its postinstall to link a native binary that
+# already arrives through its optional platform package, so it is not needed.
+allowBuilds:
+  esbuild: false
