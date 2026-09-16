@@ -98,6 +98,12 @@ followed by the length-prefixed user ID and optional context strings. This
 changes proof compatibility with version 1.x for both exchange variants.
 Upgrade both peers together; version 1.x proofs are rejected.
 
+User IDs must be nonempty, well-formed Unicode strings of at most 255 UTF-8
+bytes. Context strings must also be well-formed Unicode and at most 255
+UTF-8 bytes each. Lone UTF-16 surrogates are rejected so distinct IDs cannot
+collapse to the same encoded identity. Valid strings are encoded exactly as
+provided, without Unicode normalization.
+
 1. This implementation is not resistant to timing attacks. In cryptographic contexts where timing attacks are a concern, additional mitigations should be implemented.
 2. If using `deriveSFromPassword` the password should be strong and have sufficient entropy.
 

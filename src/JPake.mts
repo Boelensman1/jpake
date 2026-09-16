@@ -12,6 +12,7 @@ import {
   JPakeError,
 } from './JPakeErrors.mjs'
 import { n, G } from './constants.mjs'
+import encodeProtocolString from './encodeProtocolString.mjs'
 
 export interface Round1Result {
   G1: Uint8Array
@@ -65,7 +66,7 @@ class JPake {
    * Creates a new instance of the JPake protocol.
    * @param userId - The unique identifier for the current user.
    * @param otherInfo - Optional additional information to be included in the protocol.
-   * @throws {InvalidArgumentError} If userId is empty.
+   * @throws {InvalidArgumentError} If userId is empty, not a well-formed Unicode string, or exceeds 255 UTF-8 bytes.
    */
   constructor(
     userId: string,
@@ -74,6 +75,7 @@ class JPake {
     if (!userId) {
       throw new InvalidArgumentError('UserId cannot be empty')
     }
+    encodeProtocolString(userId, 'userId')
     this.userId = userId
     this.state = JPakeState.INITIAL
   }

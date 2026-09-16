@@ -131,6 +131,56 @@ describe('Schnorr Signature Scheme', () => {
     expect(isValid).toBe(false)
   })
 
+  it.each(['peer\uD800', 'peer\uDC00'])(
+    'should reject proof identity alias %j',
+    (peerId) => {
+      const proof = generateSchnorrProof('peer\uFFFD', privateKey, publicKey, G)
+
+      expect(() =>
+        verifySchnorrProof(peerId, publicKey, proof, G),
+      ).toThrowError('userId must contain only well-formed Unicode.')
+    },
+  )
+
+  it.each(['context\uD800', 'context\uDC00'])(
+    'should reject proof context alias %j',
+    (context) => {
+      const proof = generateSchnorrProof(userId, privateKey, publicKey, G, [
+        'context\uFFFD',
+      ])
+
+      expect(() =>
+        verifySchnorrProof(userId, publicKey, proof, G, [context]),
+      ).toThrowError('otherInfo must contain only well-formed Unicode.')
+      expect(() =>
+        generateSchnorrProof(userId, privateKey, publicKey, G, [context]),
+      ).toThrowError('otherInfo must contain only well-formed Unicode.')
+    },
+  )
+
+  it('should preserve valid Unicode context, including empty strings', () => {
+    const context = ['', '🔐', '\uFFFD', '\uFEFF', 'é', 'e\u0301']
+    const proof = generateSchnorrProof(
+      userId,
+      privateKey,
+      publicKey,
+      G,
+      context,
+    )
+
+    expect(verifySchnorrProof(userId, publicKey, proof, G, context)).toBe(true)
+    expect(
+      verifySchnorrProof(userId, publicKey, proof, G, [
+        '',
+        '🔐',
+        '\uFFFD',
+        '',
+        'é',
+        'e\u0301',
+      ]),
+    ).toBe(false)
+  })
+
   it('should handle otherInfo correctly', () => {
     const otherInfo = ['additional', 'information']
     const gr = G.multiply(bytesToNumberBE(secp256k1.utils.randomSecretKey()))
@@ -174,7 +224,7 @@ describe('Schnorr Signature Scheme', () => {
     expect(() =>
       generateSchnorrChallenge(userId, publicKey, gr, G, longOtherInfo),
     ).toThrowError(
-      'Each otherInfo string must be 255 bytes or less when UTF-8 encoded.',
+      'otherInfo is too long. It must be 255 bytes or less when UTF-8 encoded.',
     )
   })
 

@@ -11,6 +11,7 @@ import {
   VerificationError,
 } from './JPakeErrors.mjs'
 import { n } from './constants.mjs'
+import encodeProtocolString from './encodeProtocolString.mjs'
 
 // Implementation of Schnorr ZKP using https://www.rfc-editor.org/rfc/rfc8235
 
@@ -22,7 +23,7 @@ import { n } from './constants.mjs'
  * @param g - The generator point.
  * @param otherInfo - Additional information to include in the challenge.
  * @returns The challenge.
- * @throws {Error} if userId is too long (more than 255 bytes).
+ * @throws {InvalidArgumentError} If userId or any context string is not well-formed Unicode or exceeds 255 UTF-8 bytes.
  */
 export const generateSchnorrChallenge = (
   userId: string,
@@ -31,16 +32,10 @@ export const generateSchnorrChallenge = (
   g: WeierstrassPoint<bigint>,
   otherInfo: string[] = [],
 ): bigint => {
-  const userIdBytes = new TextEncoder().encode(userId)
+  const userIdBytes = encodeProtocolString(userId, 'userId')
   const gBytes = g.toBytes(true)
   const gxBytes = gx.toBytes(true)
   const grBytes = gr.toBytes(true)
-
-  if (userIdBytes.length > 255) {
-    throw new InvalidArgumentError(
-      'userId is too long. It must be 255 bytes or less when UTF-8 encoded.',
-    )
-  }
 
   // These point-length checks should be superfluous
   if (gBytes.length > 255) {
@@ -77,12 +72,7 @@ export const generateSchnorrChallenge = (
           userIdBytes,
 
           ...otherInfo.map((info) => {
-            const infoBytes = new TextEncoder().encode(info)
-            if (infoBytes.length > 255) {
-              throw new InvalidArgumentError(
-                'Each otherInfo string must be 255 bytes or less when UTF-8 encoded.',
-              )
-            }
+            const infoBytes = encodeProtocolString(info, 'otherInfo')
             return concatBytes(new Uint8Array([infoBytes.length]), infoBytes)
           }),
         ),

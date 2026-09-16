@@ -13,7 +13,12 @@ describe('JPakeThreePass', () => {
     bob = new JPakeThreePass('Bob')
   })
 
-  it('should successfully complete a key exchange', () => {
+  it.each([
+    ['Alice', 'Bob'],
+    ['Alice🔐', 'Bob\uFFFD'],
+  ])('should complete an exchange between %j and %j', (aliceId, bobId) => {
+    alice = new JPakeThreePass(aliceId)
+    bob = new JPakeThreePass(bobId)
     // Simulate the J-PAKE protocol exchange
     const alicePass1 = alice.pass1()
 
@@ -27,6 +32,39 @@ describe('JPakeThreePass', () => {
 
     expect(aliceSharedKey).toEqual(bobSharedKey)
   })
+
+  it.each(['peer\uD800', 'peer\uDC00'])(
+    'should reject malformed local identity %j at construction',
+    (userId) => {
+      expect(() => new JPakeThreePass(userId)).toThrowError(
+        'userId must contain only well-formed Unicode.',
+      )
+    },
+  )
+
+  it.each(['peer\uD800', 'peer\uDC00'])(
+    'should reject a reflected first pass with identity %j',
+    (peerId) => {
+      const victim = new JPakeThreePass('peer\uFFFD')
+      const reflectedPass1 = new JPakeThreePass(victim.userId).pass1()
+
+      expect(() => victim.pass2(reflectedPass1, s, peerId)).toThrowError(
+        'userId must contain only well-formed Unicode.',
+      )
+    },
+  )
+
+  it.each(['Bob\uD800', 'Bob\uDC00'])(
+    'should reject a second-pass identity alias %j',
+    (peerId) => {
+      const responder = new JPakeThreePass('Bob\uFFFD')
+      const pass2 = responder.pass2(alice.pass1(), s, alice.userId)
+
+      expect(() => alice.pass3(pass2, s, peerId)).toThrowError(
+        'userId must contain only well-formed Unicode.',
+      )
+    },
+  )
 
   it.each(['ZKPx1', 'ZKPx2'] as const)(
     'should reject a substituted %s before returning pass 2',

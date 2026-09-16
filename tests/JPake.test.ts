@@ -22,7 +22,15 @@ describe('JPake', () => {
     bob = new JPake('Bob')
   })
 
-  it('should successfully complete a key exchange', () => {
+  it.each([
+    ['Alice', 'Bob'],
+    ['Alice🔐', 'Bob\uFFFD'],
+    ['\uFEFFpeer', 'peer'],
+    ['é', 'e\u0301'],
+    ['🔐'.repeat(63) + 'abc', 'Bob'],
+  ])('should complete an exchange between %j and %j', (aliceId, bobId) => {
+    alice = new JPake(aliceId)
+    bob = new JPake(bobId)
     // Simulate the J-PAKE protocol exchange
     const aliceRound1 = alice.round1()
     const bobRound1 = bob.round1()
@@ -78,6 +86,52 @@ describe('JPake', () => {
     expect(() =>
       alice.round2(alsoAliceRound1, s, alsoAlice.userId),
     ).toThrowError('Proof verification failed, userIds are equal.')
+  })
+
+  it.each(['peer\uD800', 'peer\uDC00'])(
+    'should reject a reflected round-one message with identity %j',
+    (peerId) => {
+      const victim = new JPake('peer\uFFFD')
+      const reflectedRound1 = victim.round1()
+
+      expect(() => victim.round2(reflectedRound1, s, peerId)).toThrowError(
+        'userId must contain only well-formed Unicode.',
+      )
+      expect(victim.getState()).toBe(JPakeState.ROUND1FINISHED)
+    },
+  )
+
+  it.each(['\uD800', '\uDC00', 'peer\uD800x', '\uDC00\uD800'])(
+    'should reject malformed local identity %j at construction',
+    (userId) => {
+      expect(() => new JPake(userId)).toThrowError(
+        'userId must contain only well-formed Unicode.',
+      )
+    },
+  )
+
+  it.each(['a'.repeat(256), '🔐'.repeat(64)])(
+    'should reject a local identity longer than 255 UTF-8 bytes',
+    (userId) => {
+      expect(() => new JPake(userId)).toThrowError(
+        'userId is too long. It must be 255 bytes or less when UTF-8 encoded.',
+      )
+    },
+  )
+
+  it('should reject a non-string local identity instead of coercing it', () => {
+    expect(() => new JPake(123 as unknown as string)).toThrowError(
+      'userId must be a string.',
+    )
+  })
+
+  it('should reject a reflected identity supplied as a non-string', () => {
+    const victim = new JPake('123')
+    const reflectedRound1 = victim.round1()
+
+    expect(() =>
+      victim.round2(reflectedRound1, s, 123 as unknown as string),
+    ).toThrowError('userId must be a string.')
   })
 
   it('should generate different shared keys for different sessions', () => {
