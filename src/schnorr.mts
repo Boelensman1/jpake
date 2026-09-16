@@ -19,6 +19,7 @@ import { n } from './constants.mjs'
  * @param userId - The user ID.
  * @param gx - The public key point.
  * @param gr - The random point.
+ * @param g - The generator point.
  * @param otherInfo - Additional information to include in the challenge.
  * @returns The challenge.
  * @throws {Error} if userId is too long (more than 255 bytes).
@@ -27,9 +28,11 @@ export const generateSchnorrChallenge = (
   userId: string,
   gx: WeierstrassPoint<bigint>,
   gr: WeierstrassPoint<bigint>,
+  g: WeierstrassPoint<bigint>,
   otherInfo: string[] = [],
 ): bigint => {
   const userIdBytes = new TextEncoder().encode(userId)
+  const gBytes = g.toBytes(true)
   const gxBytes = gx.toBytes(true)
   const grBytes = gr.toBytes(true)
 
@@ -39,7 +42,12 @@ export const generateSchnorrChallenge = (
     )
   }
 
-  // These two checks should be superfluous
+  // These point-length checks should be superfluous
+  if (gBytes.length > 255) {
+    throw new InvalidArgumentError(
+      'gBytes is too long. It must be 255 bytes or less.',
+    )
+  }
   if (gxBytes.length > 255) {
     throw new InvalidArgumentError(
       'gxBytes is too long. It must be 255 bytes or less.',
@@ -51,15 +59,19 @@ export const generateSchnorrChallenge = (
     )
   }
 
+  // RFC 8235: H(G || V || A || UserID || OtherInfo), with length prefixes.
   const challenge = mod(
     bytesToNumberBE(
       sha3_256(
         concatBytes(
-          new Uint8Array([gxBytes.length]),
-          gx.toBytes(true),
+          new Uint8Array([gBytes.length]),
+          gBytes,
 
           new Uint8Array([grBytes.length]),
-          gr.toBytes(true),
+          grBytes,
+
+          new Uint8Array([gxBytes.length]),
+          gxBytes,
 
           new Uint8Array([userIdBytes.length]),
           userIdBytes,
@@ -103,7 +115,7 @@ export const generateSchnorrProof = (
 
   const V = g.multiply(v)
 
-  const challenge = generateSchnorrChallenge(userId, gx, V, otherInfo)
+  const challenge = generateSchnorrChallenge(userId, gx, V, g, otherInfo)
 
   const r = numberToBytesBE(mod(v - bytesToNumberBE(x) * challenge, n), 32)
 
@@ -170,7 +182,7 @@ export const verifySchnorrProof = (
   )
 
   // Compute the challenge
-  const c = generateSchnorrChallenge(peerUserId, gx, V, otherInfo)
+  const c = generateSchnorrChallenge(peerUserId, gx, V, g, otherInfo)
 
   // Verify that V = G * [r] + gx * [c]
   const leftSide = V

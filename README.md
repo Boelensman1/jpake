@@ -92,6 +92,12 @@ console.log(
 
 ## Security Considerations
 
+Version 2.0.0 binds each Schnorr proof to its generator by hashing the
+length-prefixed, compressed generator, commitment, and public key encodings,
+followed by the length-prefixed user ID and optional context strings. This
+changes proof compatibility with version 1.x for both exchange variants.
+Upgrade both peers together; version 1.x proofs are rejected.
+
 1. This implementation is not resistant to timing attacks. In cryptographic contexts where timing attacks are a concern, additional mitigations should be implemented.
 2. If using `deriveSFromPassword` the password should be strong and have sufficient entropy.
 
