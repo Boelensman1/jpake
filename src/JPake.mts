@@ -214,19 +214,25 @@ class JPake {
       )
     }
 
-    this.bobUserId = bobUserId
-
-    // Verify the received ZKPs and userIds
-    const isValidZKP = this.verifyPeerProof(
-      bobUserId,
-      round1ResultBobG1,
-      round1ResultBob.ZKPx1,
-      G,
-    )
-    if (!isValidZKP) {
+    // Verify both peer proofs before using their points with the shared secret.
+    if (
+      !this.verifyPeerProof(
+        bobUserId,
+        round1ResultBobG1,
+        round1ResultBob.ZKPx1,
+        G,
+      ) ||
+      !this.verifyPeerProof(
+        bobUserId,
+        round1ResultBobG2,
+        round1ResultBob.ZKPx2,
+        G,
+      )
+    ) {
       throw new VerificationError('ZKP verification failed')
     }
 
+    this.bobUserId = bobUserId
     this.G3 = round1ResultBobG1 // Bob's G1
     this.G4 = round1ResultBobG2 // Bob's G2
 

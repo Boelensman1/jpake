@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach } from 'vitest'
 import {
   JPake,
+  JPakeState,
   deriveSFromPassword,
   Round1Result,
   Round2Result,
@@ -135,6 +136,46 @@ describe('JPake', () => {
     expect(() => alice.round2(eveRound1, s, bob.userId)).toThrowError(
       'ZKP verification failed',
     )
+  })
+
+  it.each(['ZKPx1', 'ZKPx2'] as const)(
+    'should reject a substituted %s before returning round 2',
+    (proof) => {
+      alice.round1()
+      const bobRound1 = bob.round1()
+      const otherBobRound1 = new JPake(bob.userId).round1()
+      bobRound1[proof] = otherBobRound1[proof]
+
+      expect(() => alice.round2(bobRound1, s, bob.userId)).toThrowError(
+        'ZKP verification failed',
+      )
+      expect(alice.getState()).toBe(JPakeState.ROUND1FINISHED)
+    },
+  )
+
+  it.each([0, 66])(
+    'should reject a second round-one proof with length %i',
+    (length) => {
+      alice.round1()
+      const bobRound1 = bob.round1()
+      bobRound1.ZKPx2 = bobRound1.ZKPx2.slice(0, length)
+
+      expect(() => alice.round2(bobRound1, s, bob.userId)).toThrowError(
+        'Invalid proof, must be 33 + 32 + 2 bytes long',
+      )
+      expect(alice.getState()).toBe(JPakeState.ROUND1FINISHED)
+    },
+  )
+
+  it('should reject a substituted second point with its original proof', () => {
+    alice.round1()
+    const bobRound1 = bob.round1()
+    bobRound1.G2 = secp256k1.Point.fromBytes(bobRound1.G2).negate().toBytes()
+
+    expect(() => alice.round2(bobRound1, s, bob.userId)).toThrowError(
+      'ZKP verification failed',
+    )
+    expect(alice.getState()).toBe(JPakeState.ROUND1FINISHED)
   })
 
   it('should detect MITM attack in round 2', () => {
