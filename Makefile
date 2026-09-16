@@ -16,6 +16,9 @@ build: $(INSTALL_DEPS) $(SRC_FILES) tsconfig.json tsconfig.build.json
 	@touch build
 
 test: $(INSTALL_DEPS)
+	pnpm exec vitest run
+
+test-watch: $(INSTALL_DEPS)
 	pnpm exec vitest
 
 coverage: $(INSTALL_DEPS) $(SRC_FILES) $(TEST_FILES)
