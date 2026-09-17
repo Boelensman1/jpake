@@ -1,7 +1,11 @@
 import { describe, it, expect, beforeEach } from 'vitest'
 import {
+  InvalidArgumentError,
+  InvalidStateError,
   JPake,
+  JPakeError,
   JPakeState,
+  VerificationError,
   deriveSFromPassword,
   Round1Result,
   Round2Result,
@@ -119,6 +123,31 @@ describe('JPake', () => {
     },
   )
 
+  // Unusable context would otherwise only surface partway through round one,
+  // after the ephemeral secrets exist.
+  it.each(['\uD800', '\uDC00', 'ctx\uD800x'])(
+    'should reject malformed context %j at construction',
+    (info) => {
+      expect(() => new JPake('Alice', ['fine', info])).toThrowError(
+        'otherInfo must contain only well-formed Unicode.',
+      )
+    },
+  )
+
+  it.each(['a'.repeat(256), '🔐'.repeat(64)])(
+    'should reject a context string longer than 255 UTF-8 bytes',
+    (info) => {
+      expect(() => new JPake('Alice', [info])).toThrowError(
+        'otherInfo is too long. It must be 255 bytes or less when UTF-8 encoded.',
+      )
+    },
+  )
+
+  it('should accept valid context at construction, including empty strings', () => {
+    expect(() => new JPake('Alice', [])).not.toThrow()
+    expect(() => new JPake('Alice', ['', 'ctx', '🔐'.repeat(63)])).not.toThrow()
+  })
+
   it('should reject a non-string local identity instead of coercing it', () => {
     expect(() => new JPake(123 as unknown as string)).toThrowError(
       'userId must be a string.',
@@ -214,8 +243,10 @@ describe('JPake', () => {
       const bobRound1 = bob.round1()
       bobRound1.ZKPx2 = bobRound1.ZKPx2.slice(0, length)
 
+      // A malformed round-one proof fails verification like any other invalid
+      // proof, rather than surfacing a separate wire-shape error.
       expect(() => alice.round2(bobRound1, s, bob.userId)).toThrowError(
-        'Invalid proof, must be 33 + 32 + 2 bytes long',
+        'ZKP verification failed',
       )
       expect(alice.getState()).toBe(JPakeState.FAILED)
     },
@@ -442,5 +473,29 @@ describe('JPake', () => {
     )
 
     expect(alice.getState()).toBe(JPakeState.FAILED)
+  })
+
+  // An application has to count peer failures to rate-limit online password
+  // guesses, so the entry point must let it tell them from its own mistakes.
+  it('should distinguish a peer failure from a local one through the entry point', () => {
+    alice.round1()
+    const bobRound1 = bob.round1()
+    bobRound1.ZKPx1 = new JPake(bob.userId).round1().ZKPx1
+
+    let peerError: unknown
+    expect(() => {
+      try {
+        alice.round2(bobRound1, s, bob.userId)
+      } catch (error) {
+        peerError = error
+        throw error
+      }
+    }).toThrowError(VerificationError)
+    expect(peerError).toBeInstanceOf(JPakeError)
+    expect(peerError).not.toBeInstanceOf(InvalidArgumentError)
+    expect(peerError).not.toBeInstanceOf(InvalidStateError)
+
+    expect(() => new JPake('')).toThrowError(InvalidArgumentError)
+    expect(() => bob.round1()).toThrowError(InvalidStateError)
   })
 })

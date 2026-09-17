@@ -1,6 +1,7 @@
 import type { WeierstrassPoint } from '@noble/curves/abstract/weierstrass.js'
 import { secp256k1 } from '@noble/curves/secp256k1.js'
 import { sha3_256 } from '@noble/hashes/sha3.js'
+import { concatBytes } from '@noble/hashes/utils.js'
 import { bytesToNumberBE, numberToBytesBE } from '@noble/curves/utils.js'
 import {
   assertProofShape,
@@ -30,11 +31,45 @@ export interface Round2Result {
   ZKPx2s: Uint8Array
 }
 
+export interface SharedKeyResult {
+  key: Uint8Array
+  transcript: Uint8Array
+}
+
+// Domain separation tag for the shared key. Hashing it alongside Ka keeps the
+// key bound to this protocol and encoding, so another protocol that reaches the
+// same Ka does not reach the same key. Changing it changes every derived key.
+const KEY_DERIVATION_LABEL = 'jpake-ts/v2 secp256k1 sha3-256 shared key'
+
+/**
+ * Prefixes a protocol field with its one-byte length.
+ * @param bytes - The field, at most 255 bytes long.
+ * @returns The length-prefixed field.
+ */
+const lengthPrefixed = (bytes: Uint8Array): Uint8Array =>
+  concatBytes(new Uint8Array([bytes.length]), bytes)
+
+/**
+ * Orders two byte strings lexicographically, shorter first on a common prefix.
+ * @param a - The first byte string.
+ * @param b - The second byte string.
+ * @returns A negative number if a sorts first, a positive number if b does.
+ */
+const compareBytes = (a: Uint8Array, b: Uint8Array): number => {
+  for (let i = 0; i < Math.min(a.length, b.length); i++) {
+    if (a[i] !== b[i]) {
+      return a[i] - b[i]
+    }
+  }
+  return a.length - b.length
+}
+
 export enum JPakeState {
   INITIAL,
   ROUND1FINISHED,
   ROUND2FINISHED,
   ROUND2RESULTSRECEIVED,
+  /** Local key derivation succeeded; peer possession remains unconfirmed. */
   KEYDERIVED,
   FAILED,
 }
@@ -57,6 +92,7 @@ class JPake {
   private G2?: WeierstrassPoint<bigint>
   private G3?: WeierstrassPoint<bigint>
   private G4?: WeierstrassPoint<bigint>
+  private A?: WeierstrassPoint<bigint>
   private B?: WeierstrassPoint<bigint>
   #x2s?: Uint8Array
   private ZKPx2sBob?: Uint8Array
@@ -73,7 +109,7 @@ class JPake {
    * Creates a new instance of the JPake protocol.
    * @param userId - The unique identifier for the current user.
    * @param otherInfo - Optional additional information to be included in the protocol.
-   * @throws {InvalidArgumentError} If userId is empty, not a well-formed Unicode string, or exceeds 255 UTF-8 bytes.
+   * @throws {InvalidArgumentError} If userId or any context string is empty, not a well-formed Unicode string, or exceeds 255 UTF-8 bytes.
    */
   constructor(
     userId: string,
@@ -83,6 +119,12 @@ class JPake {
       throw new InvalidArgumentError('UserId cannot be empty')
     }
     encodeProtocolField(userId, 'userId')
+    // Reject unusable context up front rather than partway through round one.
+    // Each proof re-encodes it, so a caller that mutates the array afterwards
+    // still fails, and both peers still fail closed on mismatched context.
+    for (const info of otherInfo ?? []) {
+      encodeProtocolField(info, 'otherInfo')
+    }
     this.userId = userId
     this.#state = JPakeState.INITIAL
   }
@@ -94,6 +136,38 @@ class JPake {
     this.#x1 = undefined
     this.#x2 = undefined
     this.#x2s = undefined
+  }
+
+  // Both peers must hash the same transcript, but each labels its own keys G1
+  // and G2 and its peer's G3 and G4. Ordering the two parties by encoded user ID
+  // makes the bytes identical on both sides while keeping each identity next to
+  // its own contributions. Round two already rejects equal IDs, so the order is
+  // total.
+  #buildTranscript(
+    selfPoints: Uint8Array[],
+    peerPoints: Uint8Array[],
+    peerUserId: string,
+  ): Uint8Array {
+    const self = {
+      id: encodeProtocolField(this.userId, 'userId'),
+      points: selfPoints,
+    }
+    const peer = {
+      id: encodeProtocolField(peerUserId, 'peerUserId'),
+      points: peerPoints,
+    }
+    const ordered =
+      compareBytes(self.id, peer.id) < 0 ? [self, peer] : [peer, self]
+
+    return concatBytes(
+      ...ordered.flatMap((party) => [
+        lengthPrefixed(party.id),
+        ...party.points.map((point) => lengthPrefixed(point)),
+      ]),
+      ...(this.otherInfo ?? []).map((info) =>
+        lengthPrefixed(encodeProtocolField(info, 'otherInfo')),
+      ),
+    )
   }
 
   // State checks stay outside this boundary: processing failures abort the
@@ -308,6 +382,7 @@ class JPake {
         throw new JPakeError('Failed to generate round 2 results')
       }
 
+      this.A = A
       this.#state = JPakeState.ROUND2FINISHED
       return { A: A.toBytes(true), ZKPx2s }
     })
@@ -350,17 +425,26 @@ class JPake {
 
   /**
    * Derives the shared key after completing Round 2.
+   * Peers with different passwords can both succeed and derive different keys.
+   * The application must confirm peer possession before authenticating the peer.
+   * This method does not perform key confirmation (RFC 8236 Section 5).
+   *
    * From RFC:
    * When the second round finishes, Alice verifies the received
    * ZKPs. Alice and Bob shall check that these new generators are not points
    * at infinity. If the verification fails, the session is aborted. Otherwise,
    * the two parties compute the common key material as follows:
    * o  Alice computes Ka = (B - (G4 x [x2*s])) x [x2]
-   * @returns The derived shared key.
+   * The key is the hash of the length-prefixed domain separation tag, the
+   * length-prefixed compressed Ka, and the transcript. The transcript holds the
+   * public values of the exchange in an order both peers compute identically;
+   * it is not secret, and is what a confirmation step should be built over.
+   * @returns The derived, unconfirmed session key and the transcript it is
+   * bound to.
    * @throws {InvalidStateError} If called in an invalid state.
    * @throws {JPakeError} If derivation or verification fails; the session enters FAILED.
    */
-  public deriveSharedKey(): Uint8Array {
+  public deriveSharedKey(): SharedKeyResult {
     if (this.#state !== JPakeState.ROUND2RESULTSRECEIVED) {
       throw new InvalidStateError(
         'Shared key can only be derived after receiving Round 2 results',
@@ -373,6 +457,7 @@ class JPake {
         !this.G2 ||
         !this.G3 ||
         !this.G4 ||
+        !this.A ||
         !this.#x2 ||
         !this.#x2s ||
         !this.ZKPx2sBob ||
@@ -415,11 +500,29 @@ class JPake {
         throw new JPakeError('Failed to derive shared key')
       }
 
+      const label = encodeProtocolField(
+        KEY_DERIVATION_LABEL,
+        'keyDerivationLabel',
+      )
+      // The transcript trails the fixed fields, and every field it holds
+      // carries its own length, so the hashed encoding stays unambiguous.
+      const transcript = this.#buildTranscript(
+        [this.G1, this.G2, this.A].map((point) => point.toBytes(true)),
+        [this.G3, this.G4, this.B].map((point) => point.toBytes(true)),
+        this.bobUserId,
+      )
+
       try {
-        const key = sha3_256(sharedSecret)
+        const key = sha3_256(
+          concatBytes(
+            lengthPrefixed(label),
+            lengthPrefixed(sharedSecret),
+            transcript,
+          ),
+        )
         this.#clearSecrets()
         this.#state = JPakeState.KEYDERIVED
-        return key
+        return { key, transcript }
       } finally {
         sharedSecret.fill(0)
       }

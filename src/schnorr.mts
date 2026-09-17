@@ -151,12 +151,17 @@ export function assertProofShape(proof: unknown): asserts proof is Uint8Array {
 
 /**
  * Verifies a Schnorr proof.
+ * Any malformed proof returns false instead of throwing, so peer-supplied bytes
+ * cannot decide between a boolean result and an exception. Invalid local
+ * arguments, such as an ill-formed peerUserId or otherInfo, still throw. Use
+ * assertProofShape where a caller must reject the wire shape explicitly.
  * @param peerUserId - The peer user ID.
  * @param gx - The public key point.
  * @param proof - The proof to verify.
  * @param g - The generator point.
  * @param otherInfo - Additional information to include in the challenge.
  * @returns True if the proof is valid, false otherwise.
+ * @throws {InvalidArgumentError} If peerUserId or any context string is not well-formed Unicode or exceeds 255 UTF-8 bytes.
  */
 export const verifySchnorrProof = (
   peerUserId: string,
@@ -165,7 +170,12 @@ export const verifySchnorrProof = (
   g: WeierstrassPoint<bigint>,
   otherInfo: string[] = [],
 ): boolean => {
-  assertProofShape(proof)
+  try {
+    assertProofShape(proof)
+  } catch {
+    // Wrong type, total length, or component lengths.
+    return false
+  }
   // Component lengths have been validated by assertProofShape.
   const VLength = proof[0]
   const rLength = proof[1 + VLength]
@@ -181,10 +191,9 @@ export const verifySchnorrProof = (
   const r = bytesToNumberBE(
     proof.slice(1 + VLength + 1, 1 + VLength + 1 + rLength),
   )
+  // A response at or above the curve order cannot come from a valid proof.
   if (r >= n) {
-    throw new VerificationError(
-      'Invalid proof, r must be less than the curve order',
-    )
+    return false
   }
 
   // Compute the challenge

@@ -6,12 +6,13 @@ import {
   numberToBytesBE,
 } from '@noble/curves/utils.js'
 import {
+  assertProofShape,
   generateSchnorrChallenge,
   generateSchnorrProof,
   verifySchnorrProof,
 } from '../src/schnorr.mjs'
 import { G, n } from '../src/constants.mjs'
-import { VerificationError } from '../src/JPakeErrors.mjs'
+import { InvalidArgumentError } from '../src/JPakeErrors.mjs'
 
 describe('Schnorr Signature Scheme', () => {
   const userId = 'testUser'
@@ -137,13 +138,13 @@ describe('Schnorr Signature Scheme', () => {
   })
 
   it.each([n, n + 1n, (1n << 256n) - 1n])(
-    'should reject out-of-range response %s with a protocol error',
+    'should reject out-of-range response %s by returning false',
     (r) => {
       const proof = hexToBytes(vectors[0].proof)
       proof.set(numberToBytesBE(r, 32), 35)
-      expect(() =>
+      expect(
         verifySchnorrProof(userId, G.multiply(3n), proof, G, otherInfo),
-      ).toThrowError(VerificationError)
+      ).toBe(false)
     },
   )
 
@@ -156,16 +157,16 @@ describe('Schnorr Signature Scheme', () => {
   })
 
   it.each([null, {}, 'not a proof', new Array<number>(67).fill(0)])(
-    'should reject non-byte proof %j with a protocol error',
+    'should reject non-byte proof %j by returning false',
     (proof) => {
-      expect(() =>
+      expect(
         verifySchnorrProof(
           userId,
           publicKey,
           proof as unknown as Uint8Array,
           G,
         ),
-      ).toThrowError(VerificationError)
+      ).toBe(false)
     },
   )
 
@@ -266,33 +267,76 @@ describe('Schnorr Signature Scheme', () => {
     )
   })
 
+  // A peer supplies these bytes, so none of them may turn a boolean check into
+  // an exception; every malformed proof must fail verification by returning false.
   it('should fail verification with malformed proofs', () => {
     const validProof = generateSchnorrProof(userId, privateKey, publicKey, G)
 
     // Test incorrect VLength
     const incorrectVLength = new Uint8Array(validProof)
     incorrectVLength[0] = 32 // Change VLength to an incorrect value
-    expect(() =>
-      verifySchnorrProof(userId, publicKey, incorrectVLength, G),
-    ).toThrowError('Invalid proof, V must be 33 bytes and r must be 32 bytes')
+    expect(verifySchnorrProof(userId, publicKey, incorrectVLength, G)).toBe(
+      false,
+    )
 
     // Test incorrect rLength
     const incorrectRLength = new Uint8Array(validProof)
     incorrectRLength[34] = 31 // Change rLength to an incorrect value
-    expect(() =>
-      verifySchnorrProof(userId, publicKey, incorrectRLength, G),
-    ).toThrowError('Invalid proof, V must be 33 bytes and r must be 32 bytes')
+    expect(verifySchnorrProof(userId, publicKey, incorrectRLength, G)).toBe(
+      false,
+    )
 
     // Test incorrect total number of bytes
     const incorrectTotalBytes = new Uint8Array(validProof.slice(0, -1)) // Remove last byte
-    expect(() =>
-      verifySchnorrProof(userId, publicKey, incorrectTotalBytes, G),
-    ).toThrowError('Invalid proof, must be 33 + 32 + 2 bytes long')
+    expect(verifySchnorrProof(userId, publicKey, incorrectTotalBytes, G)).toBe(
+      false,
+    )
 
     // Test only VLength
     const onlyVLength = new Uint8Array([33])
+    expect(verifySchnorrProof(userId, publicKey, onlyVLength, G)).toBe(false)
+
+    // Test a V whose x coordinate has no square root, so it decodes to no
+    // point at all rather than to a point that fails the equation
+    const undecodableV = new Uint8Array(validProof)
+    undecodableV.fill(0, 1, 34)
+    undecodableV[1] = 2
+    expect(verifySchnorrProof(userId, publicKey, undecodableV, G)).toBe(false)
+  })
+
+  // Callers that must reject the wire shape explicitly still get an error.
+  it('should throw from assertProofShape while verification returns false', () => {
+    const validProof = generateSchnorrProof(userId, privateKey, publicKey, G)
+
+    expect(() => assertProofShape(validProof)).not.toThrow()
+
+    const shortProof = validProof.slice(0, -1)
+    expect(() => assertProofShape(shortProof)).toThrowError(
+      'Invalid proof, must be 33 + 32 + 2 bytes long',
+    )
+
+    const badComponentLength = new Uint8Array(validProof)
+    badComponentLength[0] = 32
+    expect(() => assertProofShape(badComponentLength)).toThrowError(
+      'Invalid proof, V must be 33 bytes and r must be 32 bytes',
+    )
+
+    // assertProofShape only covers the wire shape, so a response above the
+    // curve order passes it and is rejected by verification instead.
+    const tooLargeR = new Uint8Array(validProof)
+    tooLargeR.fill(0xff, 35)
+    expect(() => assertProofShape(tooLargeR)).not.toThrow()
+    expect(verifySchnorrProof(userId, publicKey, tooLargeR, G)).toBe(false)
+  })
+
+  it('should still throw for local arguments that cannot be encoded', () => {
+    const validProof = generateSchnorrProof(userId, privateKey, publicKey, G)
+
     expect(() =>
-      verifySchnorrProof(userId, publicKey, onlyVLength, G),
-    ).toThrowError('Invalid proof, must be 33 + 32 + 2 bytes long')
+      verifySchnorrProof('\uD800', publicKey, validProof, G),
+    ).toThrowError(InvalidArgumentError)
+    expect(() =>
+      verifySchnorrProof(userId, publicKey, validProof, G, ['a'.repeat(256)]),
+    ).toThrowError(InvalidArgumentError)
   })
 })

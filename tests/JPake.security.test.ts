@@ -2,6 +2,8 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { inspect } from 'node:util'
 import { Buffer as NodeBuffer } from 'node:buffer'
 import { secp256k1 } from '@noble/curves/secp256k1.js'
+import { sha3_256 } from '@noble/hashes/sha3.js'
+import { concatBytes } from '@noble/hashes/utils.js'
 import { bytesToNumberBE, numberToBytesBE } from '@noble/curves/utils.js'
 import { mod } from '@noble/curves/abstract/modular.js'
 import { JPake, JPakeState, deriveSFromPassword } from '../src/main.mjs'
@@ -43,8 +45,13 @@ const prepareExchange = () => {
   const a2 = alice.round2(b1, s, 'Bob')
   const b2 = bob.round2(a1, s, 'Alice')
   bob.setRound2ResultFromBob(a2)
-  return { alice, bob, b1, b2 }
+  return { alice, bob, a1, a2, b1, b2 }
 }
+
+const lengthPrefixed = (bytes: Uint8Array) =>
+  concatBytes(new Uint8Array([bytes.length]), bytes)
+
+const encode = (value: string) => new TextEncoder().encode(value)
 
 const expectFailed = (alice: JPake) => {
   expect(alice.getState()).toBe(JPakeState.FAILED)
@@ -177,6 +184,110 @@ describe('J-PAKE security boundaries', () => {
     expectFailed(alice)
   })
 
+  // Pins the derivation itself: the key is the hash of the length-prefixed
+  // domain separation tag and the length-prefixed compressed Ka, not of Ka
+  // alone, so another protocol reaching the same Ka gets a different key.
+  it('should bind the derived key to a domain separation tag', () => {
+    // Held as a bigint because the buffer handed to JPake is wiped on derivation.
+    const x2Scalar = 7n
+    vi.mocked(secp256k1.utils.randomSecretKey)
+      .mockReturnValueOnce(numberToBytesBE(3n, 32))
+      .mockReturnValueOnce(numberToBytesBE(x2Scalar, 32))
+
+    const { alice, bob, a1, a2, b1, b2 } = prepareExchange()
+    alice.setRound2ResultFromBob(b2)
+    const { key, transcript } = alice.deriveSharedKey()
+
+    // Ka = (B - (G4 x [x2*s])) x [x2], recomputed here from public values.
+    const Ka = secp256k1.Point.fromBytes(b2.A)
+      .subtract(
+        secp256k1.Point.fromBytes(b1.G2).multiply(
+          mod(x2Scalar * bytesToNumberBE(s), n),
+        ),
+      )
+      .multiply(x2Scalar)
+    const KaBytes = Ka.toBytes(true)
+
+    // 'Alice' sorts before 'Bob', so Alice's identity and contributions lead.
+    expect(transcript).toEqual(
+      concatBytes(
+        lengthPrefixed(encode('Alice')),
+        lengthPrefixed(a1.G1),
+        lengthPrefixed(a1.G2),
+        lengthPrefixed(a2.A),
+        lengthPrefixed(encode('Bob')),
+        lengthPrefixed(b1.G1),
+        lengthPrefixed(b1.G2),
+        lengthPrefixed(b2.A),
+      ),
+    )
+
+    const label = encode('jpake-ts/v2 secp256k1 sha3-256 shared key')
+    expect(key).toEqual(
+      sha3_256(
+        concatBytes(lengthPrefixed(label), lengthPrefixed(KaBytes), transcript),
+      ),
+    )
+    expect(key).not.toEqual(sha3_256(KaBytes))
+    expect(key).toHaveLength(32)
+    expect(bob.deriveSharedKey()).toEqual({ key, transcript })
+  })
+
+  // Each peer labels its own keys G1 and G2 and its peer's G3 and G4, so the
+  // party ordering is what keeps the two transcripts identical. Both branches of
+  // the comparison have to be exercised.
+  it.each([
+    ['initiator sorts first', 'Alice', 'Bob'],
+    ['responder sorts first', 'Zoe', 'Bob'],
+  ])('should build one canonical transcript when the %s', (_, a, b) => {
+    const alice = new JPake(a)
+    const bob = new JPake(b)
+    const a1 = alice.round1()
+    const b1 = bob.round1()
+    const a2 = alice.round2(b1, s, b)
+    const b2 = bob.round2(a1, s, a)
+    alice.setRound2ResultFromBob(b2)
+    bob.setRound2ResultFromBob(a2)
+
+    const aliceResult = alice.deriveSharedKey()
+    const bobResult = bob.deriveSharedKey()
+
+    expect(aliceResult.transcript).toEqual(bobResult.transcript)
+    expect(aliceResult.key).toEqual(bobResult.key)
+    // The lower identity leads regardless of which peer derives it.
+    const first = a < b ? a : b
+    expect(aliceResult.transcript.subarray(0, first.length + 1)).toEqual(
+      lengthPrefixed(encode(first)),
+    )
+  })
+
+  it('should carry the context strings at the end of the transcript', () => {
+    const otherInfo = ['app/v1', 'session-42']
+    const alice = new JPake('Alice', otherInfo)
+    const bob = new JPake('Bob', otherInfo)
+    const a1 = alice.round1()
+    const b1 = bob.round1()
+    const a2 = alice.round2(b1, s, 'Bob')
+    const b2 = bob.round2(a1, s, 'Alice')
+    alice.setRound2ResultFromBob(b2)
+    bob.setRound2ResultFromBob(a2)
+
+    const { transcript } = alice.deriveSharedKey()
+    expect(bob.deriveSharedKey().transcript).toEqual(transcript)
+
+    const context = concatBytes(
+      ...otherInfo.map((info) => lengthPrefixed(encode(info))),
+    )
+    expect(transcript.subarray(-context.length)).toEqual(context)
+    // Six length-prefixed points and two identities precede the context.
+    expect(transcript).toHaveLength(
+      6 * 34 +
+        lengthPrefixed(encode('Alice')).length +
+        lengthPrefixed(encode('Bob')).length +
+        context.length,
+    )
+  })
+
   it.each([
     ['Uint8Array', (bytes: Uint8Array) => new Uint8Array(bytes)],
     ['Buffer', (bytes: Uint8Array) => NodeBuffer.from(bytes)],
@@ -231,11 +342,16 @@ describe('J-PAKE security boundaries', () => {
         return fill.call(this, value, start, end)
       })
 
-      // Invalid context causes round-one generation to fail after secrets exist.
-      const alice = new JPake(
-        'Alice',
-        outcome === 'round1' ? ['\uD800'] : undefined,
-      )
+      // The nonce draw for the first proof fails once both secrets exist, which
+      // is the window where round one has something to wipe.
+      if (outcome === 'round1') {
+        vi.mocked(secp256k1.utils.randomSecretKey).mockImplementationOnce(
+          () => {
+            throw new RangeError('Injected nonce failure')
+          },
+        )
+      }
+      const alice = new JPake('Alice')
       if (outcome === 'round1') {
         expect(() => alice.round1()).toThrowError(JPakeError)
         expectFailed(alice)

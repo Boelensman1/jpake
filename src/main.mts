@@ -4,10 +4,15 @@ import JPake, { JPakeState } from './JPake.mjs'
 import JPakeThreePass from './JPakeThreePass.mjs'
 
 export { JPake, JPakeThreePass, JPakeState, deriveSFromPassword }
-export { JPakeError, InvalidStateError } from './JPakeErrors.mjs'
+export {
+  JPakeError,
+  InvalidArgumentError,
+  InvalidStateError,
+  VerificationError,
+} from './JPakeErrors.mjs'
 
 // export types
-import type { Round1Result, Round2Result } from './JPake.mjs'
+import type { Round1Result, Round2Result, SharedKeyResult } from './JPake.mjs'
 import type {
   Pass1Result,
   Pass2Result,
@@ -17,6 +22,7 @@ import type {
 export type {
   Round1Result,
   Round2Result,
+  SharedKeyResult,
   Pass1Result,
   Pass2Result,
   Pass3Result,

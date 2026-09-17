@@ -1,4 +1,9 @@
-import JPake, { Round1Result, Round2Result } from './JPake.mjs'
+import JPake, {
+  JPakeState,
+  Round1Result,
+  Round2Result,
+  SharedKeyResult,
+} from './JPake.mjs'
 
 export type Pass1Result = Round1Result
 export interface Pass2Result {
@@ -16,9 +21,21 @@ class JPakeThreePass {
   /**
    * Creates a new instance of JPakeThreePass.
    * @param userId - The unique identifier for the current user.
+   * @param otherInfo - Optional additional information to be included in the protocol.
+   * @throws {InvalidArgumentError} If userId or any context string is empty, not a well-formed Unicode string, or exceeds 255 UTF-8 bytes.
    */
-  constructor(readonly userId: string) {
-    this.jpake = new JPake(this.userId)
+  constructor(
+    readonly userId: string,
+    otherInfo?: string[],
+  ) {
+    this.jpake = new JPake(this.userId, otherInfo)
+  }
+
+  /**
+   * @returns The current state of the J-PAKE transfer.
+   */
+  public getState(): JPakeState {
+    return this.jpake.getState()
   }
 
   /**
@@ -81,9 +98,13 @@ class JPakeThreePass {
   /**
    * Derives the shared key after completing the J-PAKE protocol. Ran on both
    * the initiator and the responder.
-   * @returns The derived shared key.
+   * Peers with different passwords can both succeed and derive different keys.
+   * The application must confirm peer possession before authenticating the peer.
+   * This method does not perform key confirmation (RFC 8236 Section 5).
+   * @returns The derived, unconfirmed session key and the transcript it is
+   * bound to.
    */
-  public deriveSharedKey(): Uint8Array {
+  public deriveSharedKey(): SharedKeyResult {
     return this.jpake.deriveSharedKey()
   }
 }

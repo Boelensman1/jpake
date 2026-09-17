@@ -1,7 +1,17 @@
 import { describe, it, expect, beforeEach } from 'vitest'
-import { JPakeThreePass, deriveSFromPassword } from '../src/main.mjs'
+import { concatBytes } from '@noble/hashes/utils.js'
+import {
+  JPakeState,
+  JPakeThreePass,
+  deriveSFromPassword,
+} from '../src/main.mjs'
 import type { Pass1Result, Pass2Result, Pass3Result } from '../src/main.mjs'
-import { InvalidStateError, JPakeError } from '../src/JPakeErrors.mjs'
+import {
+  InvalidArgumentError,
+  InvalidStateError,
+  JPakeError,
+  VerificationError,
+} from '../src/JPakeErrors.mjs'
 
 describe('JPakeThreePass', () => {
   let alice: JPakeThreePass
@@ -116,6 +126,81 @@ describe('JPakeThreePass', () => {
     const bobSharedKey = bob.deriveSharedKey()
 
     expect(aliceSharedKey).not.toEqual(bobSharedKey)
+  })
+
+  it('should bind an exchange to matching context strings', () => {
+    const context = ['app/v1', 'session-42']
+    alice = new JPakeThreePass('Alice', context)
+    bob = new JPakeThreePass('Bob', context)
+
+    const pass2 = bob.pass2(alice.pass1(), s, alice.userId)
+    bob.receivePass3Results(alice.pass3(pass2, s, bob.userId))
+
+    const aliceResult = alice.deriveSharedKey()
+    expect(aliceResult).toEqual(bob.deriveSharedKey())
+    // The context reaches the transcript, so it reached the proofs too.
+    const encoded = concatBytes(
+      ...context.map((info) => {
+        const bytes = new TextEncoder().encode(info)
+        return concatBytes(new Uint8Array([bytes.length]), bytes)
+      }),
+    )
+    expect(aliceResult.transcript.subarray(-encoded.length)).toEqual(encoded)
+  })
+
+  it('should reject a peer whose context strings differ', () => {
+    alice = new JPakeThreePass('Alice', ['app/v1'])
+    bob = new JPakeThreePass('Bob', ['app/v2'])
+
+    expect(() => bob.pass2(alice.pass1(), s, alice.userId)).toThrowError(
+      VerificationError,
+    )
+    expect(bob.getState()).toBe(JPakeState.FAILED)
+  })
+
+  it('should reject a malformed context string at construction', () => {
+    expect(() => new JPakeThreePass('')).toThrowError(InvalidArgumentError)
+
+    // Unusable context fails before an exchange starts, not partway through it.
+    for (const context of ['\uD800', 'a'.repeat(256)]) {
+      expect(() => new JPakeThreePass('Alice', [context])).toThrowError(
+        InvalidArgumentError,
+      )
+    }
+  })
+
+  it('should report the state through every pass', () => {
+    expect(alice.getState()).toBe(JPakeState.INITIAL)
+    expect(bob.getState()).toBe(JPakeState.INITIAL)
+
+    const pass1 = alice.pass1()
+    expect(alice.getState()).toBe(JPakeState.ROUND1FINISHED)
+
+    const pass2 = bob.pass2(pass1, s, alice.userId)
+    expect(bob.getState()).toBe(JPakeState.ROUND2FINISHED)
+
+    const pass3 = alice.pass3(pass2, s, bob.userId)
+    expect(alice.getState()).toBe(JPakeState.ROUND2RESULTSRECEIVED)
+
+    bob.receivePass3Results(pass3)
+    expect(bob.getState()).toBe(JPakeState.ROUND2RESULTSRECEIVED)
+
+    alice.deriveSharedKey()
+    bob.deriveSharedKey()
+    expect(alice.getState()).toBe(JPakeState.KEYDERIVED)
+    expect(bob.getState()).toBe(JPakeState.KEYDERIVED)
+  })
+
+  it('should report the terminal failed state after an aborted pass', () => {
+    const pass1 = alice.pass1()
+    const pass2 = bob.pass2(pass1, s, alice.userId)
+    pass2.round1Result.ZKPx1.fill(0xff, 35)
+
+    expect(() => alice.pass3(pass2, s, bob.userId)).toThrowError(JPakeError)
+    expect(alice.getState()).toBe(JPakeState.FAILED)
+    // An out-of-order call reports the failure without changing the state.
+    expect(() => alice.pass1()).toThrowError(InvalidStateError)
+    expect(alice.getState()).toBe(JPakeState.FAILED)
   })
 
   it('should throw error when trying to derive key before completing exchange', () => {
